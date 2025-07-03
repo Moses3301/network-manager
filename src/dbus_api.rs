@@ -131,38 +131,42 @@ impl DBusApi {
     }
 
     pub fn property<T>(&self, path: &str, interface: &str, name: &str) -> Result<T>
-    where
-        DBusApi: VariantTo<T>,
-    {
-        let property_error = |details: &str, err: bool| {
-            let message = format!(
-                "Get {}::{} property failed on {}: {}",
-                interface, name, path, details
-            );
-            if err {
-                error!("{}", message);
-            } else {
-                debug!("{}", message);
-            }
-            ErrorKind::DBusAPI(message)
-        };
+        where
+            DBusApi: VariantTo<T>,
+        {
+            let property_error = |details: &str, err: bool| {
+                let message = format!(
+                    "Get {}::{} property failed on {}: {}",
+                    interface, name, path, details
+                );
+                if err {
+                    error!("{}", message);
+                } else {
+                    debug!("{}", message);
+                }
+                ErrorKind::DBusAPI(message)
+            };
 
-        let path = self.with_path(path);
+            let path = self.with_path(path);
 
-        match path.get(interface, name) {
-            Ok(variant) => match DBusApi::variant_to(&variant) {
-                Some(data) => Ok(data),
-                None => bail!(property_error("wrong property type", true)),
-            },
-            Err(e) => {
-                let dbus_err = match e.message() {
-                    Some(details) => property_error(details, false),
-                    None => property_error("no details", false),
-                };
-                Err(e).chain_err(|| dbus_err)
+            match path.get(interface, name) {
+                Ok(variant) => match DBusApi::variant_to(&variant) {
+                    Some(data) => Ok(data),
+                    None => {
+                        // Log the error but don't fail
+                        debug!("Property type mismatch for {}::{} - skipping", interface, name);
+                        bail!(property_error("wrong property type", false))
+                    }
+                },
+                Err(e) => {
+                    let dbus_err = match e.message() {
+                        Some(details) => property_error(details, false),
+                        None => property_error("no details", false),
+                    };
+                    Err(e).chain_err(|| dbus_err)
+                }
             }
         }
-    }
 
     pub fn extract<'a, T>(&self, response: &'a Message) -> Result<T>
     where
@@ -213,6 +217,12 @@ impl VariantTo<i64> for DBusApi {
 
 impl VariantTo<u32> for DBusApi {
     fn variant_to(value: &Variant<Box<dyn RefArg>>) -> Option<u32> {
+        // Try direct u32 conversion first
+        if let Some(v) = value.0.as_u64() {
+            return Some(v as u32);
+        }
+        
+        // Fallback to i64 conversion if needed
         value.0.as_i64().map(|v| v as u32)
     }
 }
