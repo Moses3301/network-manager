@@ -153,7 +153,6 @@ impl DBusApi {
                 Ok(variant) => match DBusApi::variant_to(&variant) {
                     Some(data) => Ok(data),
                     None => {
-                        // Log the error but don't fail
                         debug!("Property type mismatch for {}::{} - skipping", interface, name);
                         bail!(property_error("wrong property type", false))
                     }
@@ -217,13 +216,15 @@ impl VariantTo<i64> for DBusApi {
 
 impl VariantTo<u32> for DBusApi {
     fn variant_to(value: &Variant<Box<dyn RefArg>>) -> Option<u32> {
-        // Try direct u32 conversion first
-        if let Some(v) = value.0.as_u64() {
-            return Some(v as u32);
-        }
-        
-        // Fallback to i64 conversion if needed
-        value.0.as_i64().map(|v| v as u32)
+        // Use as_i64() since that's available
+        value.0.as_i64().and_then(|v| {
+            // Only convert non-negative values that fit in u32
+            if v >= 0 && v <= u32::MAX as i64 {
+                Some(v as u32)
+            } else {
+                None
+            }
+        })
     }
 }
 
