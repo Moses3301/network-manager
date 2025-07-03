@@ -151,13 +151,22 @@ pub fn property<T>(&self, path: &str, interface: &str, name: &str) -> Result<T>
 
         match path.get(interface, name) {
             Ok(variant) => {
-                // Add debug logging
-                debug!("Got variant for {}::{}: {:?}", interface, name, variant);
+                debug!(
+                    "Got D-Bus variant for {}::{}: {:?} (type: {})",
+                    interface,
+                    name,
+                    variant,
+                    std::any::type_name::<T>()
+                );
                 
                 match DBusApi::variant_to(&variant) {
                     Some(data) => Ok(data),
                     None => {
-                        debug!("Failed to convert variant type for {}::{}", interface, name);
+                        error!(
+                            "Failed to convert variant {:?} to {}",
+                            variant,
+                            std::any::type_name::<T>()
+                        );
                         bail!(property_error("wrong property type", false))
                     }
                 }
@@ -221,15 +230,28 @@ impl VariantTo<i64> for DBusApi {
 
 impl VariantTo<u32> for DBusApi {
     fn variant_to(value: &Variant<Box<dyn RefArg>>) -> Option<u32> {
-        // First try to get as iterator
+        // Debug the actual variant type
+        debug!("Attempting to convert variant: {:?}", value);
+        
         if let Some(iter) = value.0.as_iter() {
-            // Take first value from iterator
-            if let Some(val) = iter.next() {
-                return val.as_i64().map(|v| v as u32);
+            // Handle iterator case
+            let vec: Vec<_> = iter.collect();
+            if let Some(first) = vec.first() {
+                if let Some(num) = first.as_u64() {
+                    return Some(num as u32);
+                }
+                if let Some(num) = first.as_i64() {
+                    return Some(num as u32);
+                }
             }
         }
         
-        // Fallback to direct conversion
+        // Try direct conversion
+        if let Some(num) = value.0.as_u64() {
+            return Some(num as u32);
+        }
+        
+        // Fallback to i64
         value.0.as_i64().map(|v| v as u32)
     }
 }

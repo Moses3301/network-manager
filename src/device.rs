@@ -139,6 +139,7 @@ pub enum DeviceType {
     Wireguard,
     WifiP2p,
     Vrf,
+    LoopBack,
 }
 
 impl From<i64> for DeviceType {
@@ -176,6 +177,7 @@ impl From<i64> for DeviceType {
             29 => DeviceType::Wireguard,
             30 => DeviceType::WifiP2p,
             31 => DeviceType::Vrf,
+            32 => DeviceType::LoopBack,  // Add LoopBack device type
             _ => {
                 warn!("Undefined device type: {}", device_type);
                 DeviceType::Unknown
