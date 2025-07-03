@@ -130,42 +130,47 @@ impl DBusApi {
         }
     }
 
-    pub fn property<T>(&self, path: &str, interface: &str, name: &str) -> Result<T>
-        where
-            DBusApi: VariantTo<T>,
-        {
-            let property_error = |details: &str, err: bool| {
-                let message = format!(
-                    "Get {}::{} property failed on {}: {}",
-                    interface, name, path, details
-                );
-                if err {
-                    error!("{}", message);
-                } else {
-                    debug!("{}", message);
-                }
-                ErrorKind::DBusAPI(message)
-            };
+pub fn property<T>(&self, path: &str, interface: &str, name: &str) -> Result<T>
+    where
+        DBusApi: VariantTo<T>,
+    {
+        let property_error = |details: &str, err: bool| {
+            let message = format!(
+                "Get {}::{} property failed on {}: {}",
+                interface, name, path, details
+            );
+            if err {
+                error!("{}", message);
+            } else {
+                debug!("{}", message);
+            }
+            ErrorKind::DBusAPI(message)
+        };
 
-            let path = self.with_path(path);
+        let path = self.with_path(path);
 
-            match path.get(interface, name) {
-                Ok(variant) => match DBusApi::variant_to(&variant) {
+        match path.get(interface, name) {
+            Ok(variant) => {
+                // Add debug logging
+                debug!("Got variant for {}::{}: {:?}", interface, name, variant);
+                
+                match DBusApi::variant_to(&variant) {
                     Some(data) => Ok(data),
                     None => {
-                        debug!("Property type mismatch for {}::{} - skipping", interface, name);
+                        debug!("Failed to convert variant type for {}::{}", interface, name);
                         bail!(property_error("wrong property type", false))
                     }
-                },
-                Err(e) => {
-                    let dbus_err = match e.message() {
-                        Some(details) => property_error(details, false),
-                        None => property_error("no details", false),
-                    };
-                    Err(e).chain_err(|| dbus_err)
                 }
+            },
+            Err(e) => {
+                let dbus_err = match e.message() {
+                    Some(details) => property_error(details, false),
+                    None => property_error("no details", false),
+                };
+                Err(e).chain_err(|| dbus_err)
             }
         }
+    }
 
     pub fn extract<'a, T>(&self, response: &'a Message) -> Result<T>
     where
@@ -216,15 +221,16 @@ impl VariantTo<i64> for DBusApi {
 
 impl VariantTo<u32> for DBusApi {
     fn variant_to(value: &Variant<Box<dyn RefArg>>) -> Option<u32> {
-        // Use as_i64() since that's available
-        value.0.as_i64().and_then(|v| {
-            // Only convert non-negative values that fit in u32
-            if v >= 0 && v <= u32::MAX as i64 {
-                Some(v as u32)
-            } else {
-                None
+        // First try to get as iterator
+        if let Some(iter) = value.0.as_iter() {
+            // Take first value from iterator
+            if let Some(val) = iter.next() {
+                return val.as_i64().map(|v| v as u32);
             }
-        })
+        }
+        
+        // Fallback to direct conversion
+        value.0.as_i64().map(|v| v as u32)
     }
 }
 
