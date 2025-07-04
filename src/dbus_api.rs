@@ -1,7 +1,8 @@
-use dbus::arg::{Array, Get, Iter, RefArg, Variant};
+use dbus::arg::{ArgType, Array, Get, Iter, RefArg, Variant};
 use dbus::stdintf::OrgFreedesktopDBusProperties;
 use dbus::Connection as DBusConnection;
 use dbus::{BusType, ConnPath, Message, Path};
+use std::any::Any;
 
 use errors::*;
 
@@ -228,31 +229,85 @@ impl VariantTo<i64> for DBusApi {
     }
 }
 
+// Remove the unused import
+// use std::any::Any;
+
 impl VariantTo<u32> for DBusApi {
     fn variant_to(value: &Variant<Box<dyn RefArg>>) -> Option<u32> {
-        // Debug the actual variant type
-        debug!("Attempting to convert variant: {:?}", value);
+        debug!("VariantTo<u32> called with value: {:?}", value);
         
+        // Handle iterator case first
         if let Some(iter) = value.0.as_iter() {
-            // Handle iterator case
+            debug!("Value is an iterator");
             let vec: Vec<_> = iter.collect();
+            debug!("Iterator contents: {:?}", vec);
+            
             if let Some(first) = vec.first() {
-                if let Some(num) = first.as_u64() {
-                    return Some(num as u32);
+                debug!("First element: {:?}", first);
+                debug!("First element type: {:?}", first.arg_type());
+                
+                match first.arg_type() {
+                    ArgType::UInt32 => {
+                        // Special handling for UInt32 iterator
+                        if let Some(num) = first.as_i64() {
+                            debug!("Converting UInt32 iterator value {} to u32", num);
+                            if num >= 0 && num <= u32::MAX as i64 {
+                                return Some(num as u32);
+                            }
+                        }
+                        // Try to get the base type directly
+                        if let Some(mut array) = value.0.as_iter() {
+                            if let Some(first) = array.next() {
+                                debug!("Trying direct array element conversion");
+                                if let Some(num) = first.as_i64() {
+                                    if num >= 0 && num <= u32::MAX as i64 {
+                                        return Some(num as u32);
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    _ => {
+                        // Try regular i64 conversion
+                        if let Some(num) = first.as_i64() {
+                            debug!("Converting i64 {} to u32", num);
+                            if num >= 0 && num <= u32::MAX as i64 {
+                                return Some(num as u32);
+                            }
+                        }
+                    }
                 }
-                if let Some(num) = first.as_i64() {
-                    return Some(num as u32);
+            }
+            debug!("Failed to convert iterator element to number");
+            return None;
+        }
+        
+        // Handle direct value case
+        debug!("Value is not an iterator, trying direct conversion");
+        debug!("Direct value arg type: {:?}", value.0.arg_type());
+        
+        match value.0.arg_type() {
+            ArgType::UInt32 | ArgType::Byte => {
+                if let Some(num) = value.0.as_i64() {
+                    debug!("Direct numeric conversion: {}", num);
+                    if num >= 0 && num <= u32::MAX as i64 {
+                        return Some(num as u32);
+                    }
+                }
+            },
+            _ => {
+                // Try regular i64 conversion as fallback
+                if let Some(num) = value.0.as_i64() {
+                    debug!("Direct i64 conversion: {}", num);
+                    if num >= 0 && num <= u32::MAX as i64 {
+                        return Some(num as u32);
+                    }
                 }
             }
         }
         
-        // Try direct conversion
-        if let Some(num) = value.0.as_u64() {
-            return Some(num as u32);
-        }
-        
-        // Fallback to i64
-        value.0.as_i64().map(|v| v as u32)
+        debug!("All conversion attempts failed");
+        None
     }
 }
 
